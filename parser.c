@@ -12,6 +12,8 @@
   #include <string.h>
 #endif
 
+#define DEBUG
+
 int dh_memcmp(char *a,char *b,int n) {
   int c = 0;
   while( c < n ) {
@@ -69,30 +71,23 @@ struct attc* new_attc( struct nodec *newparent ) {
 
 //#define DEBUG
 
-#define ST_val_1 1
-#define ST_val_x 2
-#define ST_comment_1dash 3
-#define ST_comment_2dash 4
-#define ST_comment 5
-#define ST_comment_x 6
-#define ST_pi 7
-#define ST_bang 24
-#define ST_cdata 8
-#define ST_name_1 9
-#define ST_name_x 10
-#define ST_name_gap 11
-#define ST_att_name1 12
-#define ST_att_space 13
-#define ST_att_name 14
-#define ST_att_nameqs 15
-#define ST_att_nameqsdone 16
-#define ST_att_eq1 17
-#define ST_att_eqx 18
-#define ST_att_quot 19
-#define ST_att_quots 20
-#define ST_att_tick 21
-#define ST_ename_1 22
-#define ST_ename_x 23
+#define ST_val_1 54
+#define ST_val_x 55
+
+#define ST_outside 99
+#define ST_value 1
+#define ST_hash 2
+#define ST_array 4
+#define ST_string 5
+#define ST_number_1 6
+#define ST_before_dot 7
+#define ST_after_day 8
+#define ST_e 9
+#define ST_e_number 10
+#define ST_true 11
+#define ST_false 12
+#define ST_null 13
+#define ST_error 100
 
 int parserc_parse( struct parserc *self, char *xmlin ) {
     // Variables that represent current 'state'
@@ -112,6 +107,7 @@ int parserc_parse( struct parserc *self, char *xmlin ) {
     int    res            = 0;
     int    dent;
     register int let;
+    int context = 0; // 0 = hash, 1 = array
     
     if( self->last_state ) {
       #ifdef DEBUG
@@ -126,525 +122,228 @@ int parserc_parse( struct parserc *self, char *xmlin ) {
       attval = self->attval; attval_len = self->attval_len;
       att_has_val = self->att_has_val;
       switch( self->last_state ) {
-        case ST_val_1: goto val_1;
-        case ST_val_x: goto val_x;
-        case ST_comment_1dash: goto comment_1dash;
-        case ST_comment_2dash: goto comment_2dash;
-        case ST_comment: goto comment;
-        case ST_comment_x: goto comment_x;
-        case ST_pi: goto pi;
-        case ST_bang: goto bang;
-        case ST_cdata: goto cdata;
-        case ST_name_1: goto name_1;
-        case ST_name_x: goto name_x;
-        case ST_name_gap: goto name_gap;
-        case ST_att_name1: goto att_name1;
-        case ST_att_space: goto att_space;
-        case ST_att_name: goto att_name;
-        case ST_att_nameqs: goto att_nameqs;
-        case ST_att_nameqsdone: goto att_nameqsdone;
-        case ST_att_eq1: goto att_eq1;
-        case ST_att_eqx: goto att_eqx;
-        case ST_att_quot: goto att_quot;
-        case ST_att_quots: goto att_quots;
-        case ST_att_tick: goto att_tick;
-        case ST_ename_1: goto ename_1;
-        case ST_ename_x: goto ename_x;
+        case ST_outside: goto outside;
+        case ST_value: goto value;
       }
     }
     else {
       self->err = 0;
       curnode = root = self->rootnode = new_nodec();
+      curnode->context = 0; // hash
     }
     
     #ifdef DEBUG
     printf("Entry to C Parser\n");
     #endif
     
-    val_1:
+    outside:
       #ifdef DEBUG
-      printf("val_1: %c\n", *cpos);
+      printf( "outside: %c\n", *cpos );
+      #endif
+      let = *cpos;
+      switch( let ) {
+        case 0: last_state = ST_outside; goto done;
+        case '{': cpos++; goto hash;
+      }
+      cpos++; // ignore anything else; lolz
+      goto outside;
+    hash:
+      #ifdef DEBUG
+      printf( "hash_1: %c\n", *cpos );
       #endif
       let = *cpos;
       switch( let ) {
         case 0: last_state = ST_val_1; goto done;
-        case '<': goto val_x;
-      }
-      if( !curnode->numvals ) {
-        curnode->value = cpos;
-        curnode->vallen = 1;
-      }
-      curnode->numvals++;
-      cpos++;
-      
-    val_x:
-      #ifdef DEBUG
-      printf("val_x: %c\n", *cpos);
-      #endif
-      let = *cpos;
-      switch( let ) {
-        case 0: last_state = ST_val_x; goto done;
-        case '<':
-          switch( *(cpos+1) ) {
-            case '!':
-              if( *(cpos+2) == '[' ) { // <![
-                //if( !strncmp( cpos+3, "CDATA", 5 ) ) {
-                if( *(cpos+3) == 'C' &&
-                    *(cpos+4) == 'D' &&
-                    *(cpos+5) == 'A' &&
-                    *(cpos+6) == 'T' &&
-                    *(cpos+7) == 'A'    ) {
-                  cpos += 9;
-                  curnode->type = 1;
-                  goto cdata;
-                }
-                else {
-                  cpos++; cpos++;
-                  goto val_x;//actually goto error...
-                }
-              }
-              else if( *(cpos+2) == '-' && // <!--
-                *(cpos+3) == '-' ) {
-                  cpos += 4;
-                  goto comment;
-              }
-              else {
-                cpos++;
-                goto bang;
-              }
-            case '?':
-              cpos+=2;
-              goto pi;
-          }
-          tagname_len = 0; // for safety
+        case '"': cpos++; goto key_1;
+        case '}':
           cpos++;
-          goto name_1;
-      }
-      if( curnode->numvals == 1 ) curnode->vallen++;
-      cpos++;
-      goto val_x;
-      
-    comment_1dash:
-      cpos++;
-      let = *cpos;
-      if( let == '-' ) goto comment_2dash;
-      if( !let ) { last_state = ST_comment_1dash; goto done; }
-      goto comment_x;
-      
-    comment_2dash:
-      cpos++;
-      let = *cpos;
-      if( let == '>' ) {
-        cpos++;
-        goto val_1;
-      }
-      if( !let ) { last_state = ST_comment_2dash; goto done; }
-      goto comment_x;
-      
-    comment:
-      let = *cpos;
-      switch( let ) {
-        case 0:   last_state = ST_comment; goto done;
-        case '-': goto comment_1dash;
-      }
-      if( !curnode->numcoms ) {
-        curnode->comment = cpos;
-        curnode->comlen = 1;
-      }
-      curnode->numcoms++;
-      cpos++;
-    
-    comment_x:
-      let = *cpos;
-      switch( let ) {
-        case 0: last_state = ST_comment_x; goto done;
-        case '-': goto comment_1dash;
-      }
-      if( curnode->numcoms == 1 ) curnode->comlen++;
-      cpos++;
-      goto comment_x;
-      
-    pi:
-      let = *cpos;
-      if( let == '?' && *(cpos+1) == '>' ) {
-        cpos += 2;
-        goto val_1;
-      }
-      if( !let ) { last_state = ST_pi; goto done; }
-      cpos++;
-      goto pi;
-
-    bang:
-      let = *cpos;
-      if( let == '>' ) {
-        cpos++;
-        goto val_1;
-      }
-      if( !let ) { last_state = ST_bang; goto done; }
-      cpos++;
-      goto bang;
-    
-    cdata:
-      let = *cpos;
-      if( !let ) { last_state = ST_cdata; goto done; }
-      if( let == ']' && *(cpos+1) == ']' && *(cpos+2) == '>' ) {
-        cpos += 3;
-        goto val_1;
-      }
-      if( !curnode->numvals ) {
-        curnode->value = cpos;
-        curnode->vallen = 0;
-        curnode->numvals = 1;
-      }
-      if( curnode->numvals == 1 ) curnode->vallen++;
-      cpos++;
-      goto cdata;
-      
-    name_1:
-      #ifdef DEBUG
-      printf("name_1: %c\n", *cpos);
-      #endif
-      let = *cpos;
-      switch( let ) {
-        case 0: last_state = ST_name_1; goto done;        
-        case ' ':
-        case 0x0d:
-        case 0x0a:
-          cpos++;
-          goto name_1;
-        case '/': // regular closing tag
-          tagname_len = 0; // needed to reset
-          cpos++;
-          goto ename_1;
-      }
-      tagname       = cpos;
-      tagname_len   = 1;
-      cpos++;
-      goto name_x;
-      
-    name_x:
-      #ifdef DEBUG
-      printf("name_x: %c\n", *cpos);
-      #endif
-      let = *cpos;
-      switch( let ) {
-        case 0: last_state = ST_name_x; goto done;
-        case ' ':
-        case 0x0d:
-        case 0x0a:
-          curnode     = nodec_addchildr( curnode, tagname, tagname_len );
-          attname_len = 0;
-          cpos++;
-          goto name_gap;
-        case '>':
-          curnode     = nodec_addchildr( curnode, tagname, tagname_len );
-          cpos++;
-          goto val_1;
-        case '/': // self closing
-          temp = nodec_addchildr( curnode, tagname, tagname_len );
-          temp->z = cpos +1 - xmlin;
-          tagname_len            = 0;
-          cpos+=2;
-          goto val_1;
-      }
-      
-      tagname_len++;
-      cpos++;
-      goto name_x;
-          
-    name_gap:
-      let = *cpos;
-      switch( *cpos ) {
-        case 0: last_state = ST_name_gap; goto done;
-        case ' ':
-        case 0x0d:
-        case 0x0a:
-          cpos++;
-          goto name_gap;
-        case '>':
-          cpos++;
-          goto val_1;
-        case '/': // self closing
-          curnode->z = cpos+1-xmlin;
           curnode = curnode->parent;
           if( !curnode ) goto done;
-          cpos+=2; // am assuming next char is >
-          goto val_1;
-        case '=':
-          cpos++;
-          goto name_gap;//actually goto error
+          if( curnode->context == 0 ) goto hash;
+          if( curnode->context == 1 ) goto array;
       }
-        
-    att_name1:
-      #ifdef DEBUG
-      printf("attname1: %c\n", *cpos);
-      #endif
-      att_has_val = 0;
-      let = *cpos;
-      switch( let ) {
-        case 0: last_state = ST_att_name1; goto done;
-        case 0x27://'
-          cpos++;
-          attname = cpos;
-          attname_len = 0;
-          goto att_nameqs;
-      }
-      attname = cpos;
-      attname_len = 1;
       cpos++;
-      goto att_name;
-      
-    att_space:
-      let = *cpos;
-      switch( let ) {
-        case 0: last_state = ST_att_space; goto done;
-        case ' ':
-        case 0x0d:
-        case 0x0a:
-          cpos++;
-          goto att_space;
-        case '=':
-          att_has_val = 1;
-          cpos++;
-          goto att_eq1;
-      }
-      // we have another attribute name, so continue
-      
-    att_name:
+      goto hash;
+    array:
       #ifdef DEBUG
-      printf("attname: %c\n", *cpos);
+      printf( "array: %c\n", *cpos );
       #endif
       let = *cpos;
       switch( let ) {
-        case 0: last_state = ST_att_name; goto done;
-        case '/': // self closing     !! /> is assumed !!
-          curatt = nodec_addattr( curnode, attname, attname_len );
-          if( !att_has_val ) { curatt->value = -1; curatt->vallen = 0; }
-          attname_len            = 0;
-          
-          curnode->z = cpos+1-xmlin;
+        case 0: last_state = ST_val_1; goto done;
+        case '"':
+          curnode = nodec_addchildr( curnode, "item", 4 );
+          cpos++;
+          goto string_1;
+        case '{':
+          // add a hash
+          curnode = nodec_addchildr( curnode, "item", 4 );
+          curnode->context = 0;
+          goto hash;
+        case '[':
+          // add an array
+          curnode = nodec_addchildr( curnode, "item", 4 );
+          curnode->context = 1;
+          goto array;
+        case ']':
+          cpos++; 
           curnode = curnode->parent;
           if( !curnode ) goto done;
-          cpos += 2;
-          goto val_1;
-        case ' ':
-          if( *(cpos+1) == '=' ) {
-            cpos++;
-            goto att_name;
-          }
-          curatt = nodec_addattr( curnode, attname, attname_len );
-          attname_len = 0;
-          cpos++;
-          goto att_space;
-        case '>':
-          curatt = nodec_addattr( curnode, attname, attname_len );
-          if( !att_has_val ) { curatt->value = -1; curatt->vallen = 0; }
-          attname_len = 0;
-          cpos++;
-          goto val_1;
-        case '=':
-          attval_len = 0;
-          curatt = nodec_addattr( curnode, attname, attname_len );
-          attname_len = 0;
-          cpos++;
-          goto att_eq1;
+          if( curnode->context == 0 ) goto hash;
+          if( curnode->context == 1 ) goto array;
       }
-      
-      if( !attname_len ) attname = cpos;
-      attname_len++;
+      if( ( let >= '0' && let <= '9' ) || let == '-' ) { 
+        curnode = nodec_addchildr( curnode, "item", 4 );
+        cpos++;
+        goto number_1;
+      }
       cpos++;
-      goto att_name;
-      
-    att_nameqs:
+      goto array;
+    key_1:
       #ifdef DEBUG
-      printf("nameqs: %c\n", *cpos);
+      printf("key_1: %c\n", *cpos);
       #endif
       let = *cpos;
       switch( let ) {
-        case 0: last_state = ST_att_nameqs; goto done;
-        case 0x27://'
+        case 0: last_state = ST_val_1; goto done;
+        case '"':
           cpos++;
-          goto att_nameqsdone;
+          curnode = nodec_addchildr( curnode, tagname, tagname_len );
+          goto colon_wait;
       }
-      attname_len++;
+      tagname = cpos;
+      tagname_len = 1;
       cpos++;
-      goto att_nameqs;
-      
-    att_nameqsdone:
+    key_x:
       #ifdef DEBUG
-      printf("nameqsdone: %c\n", *cpos);
+      printf("key_x: %c\n", *cpos);
       #endif
       let = *cpos;
       switch( let ) {
-        case 0: last_state = ST_att_nameqsdone; goto done;
-        case '=':
-          attval_len = 0;
-          curatt = nodec_addattr( curnode, attname, attname_len );
-          attname_len = 0;
+        case 0: last_state = ST_val_1; goto done;
+        case '"':
           cpos++;
-          goto att_eq1;
+          curnode = nodec_addchildr( curnode, tagname, tagname_len );
+          //tagname = "val";
+          //tagname_len = 3;
+          goto colon_wait;
       }
-      goto att_nameqsdone;
-      
-    att_eq1:
-      let = *cpos;
-      switch( let ) {
-        case 0: last_state = ST_att_eq1; goto done;
-        case '/': // self closing
-          if( *(cpos+1) == '>' ) {
-            curnode->z = cpos+1-xmlin;
-            curnode = curnode->parent;
-            if( !curnode ) goto done;
-            cpos+=2;
-            goto att_eq1;
-          }
-          break;
-        case '"':  cpos++; goto att_quot;
-        case 0x27: cpos++; goto att_quots; //'
-        case '`':  cpos++; goto att_tick;
-        case '>':  cpos++; goto val_1;
-        case ' ':  cpos++; goto att_eq1;
-      }  
-      if( !attval_len ) attval = cpos;
-      attval_len++;
-      cpos++;
-      goto att_eqx;
-      
-    att_eqx:
-      let = *cpos;
-      switch( let ) {
-        case 0: last_state = ST_att_eqx; goto done;
-        case '/': // self closing
-          if( *(cpos+1) == '>' ) {
-            curnode->z = cpos+1-xmlin;
-            curnode = curnode->parent;
-            if( !curnode ) goto done; // bad error condition
-            curatt->value = attval;
-            curatt->vallen = attval_len;
-            attval_len    = 0;
-            cpos += 2;
-            goto val_1;
-          }
-          break;
-        case '>':
-          curatt->value = attval;
-          curatt->vallen = attval_len;
-          attval_len    = 0;
-          cpos++;
-          goto val_1;
-        case ' ':
-          curatt->value = attval;
-          curatt->vallen = attval_len;
-          attval_len    = 0;
-          cpos++;
-          goto name_gap;
-      }
-      
-      if( !attval_len ) attval = cpos;
-      attval_len++;
-      cpos++;
-      goto att_eqx;
-      
-    att_quot:
-      let = *cpos;
-      
-      if( let == '"' ) {
-        if( attval_len ) {
-          curatt->value = attval;
-          curatt->vallen = attval_len;
-          attval_len = 0;
-        }
-        cpos++;
-        goto name_gap;
-      }
-      if( !let ) { last_state = ST_att_quot; goto done; }
-      if( !attval_len ) attval = cpos;
-      attval_len++;
-      cpos++;
-      goto att_quot;
-      
-    att_quots:
-      let = *cpos;
-      
-      if( let == 0x27 ) { // '
-        if( attval_len ) {
-          curatt->value = attval;
-          curatt->vallen = attval_len;
-          attval_len = 0;
-        }
-        cpos++;
-        goto name_gap;
-      }
-      if( !let ) { last_state = ST_att_quots; goto done; }
-      
-      if( !attval_len ) attval = cpos;
-      attval_len++;
-      cpos++;
-      goto att_quots;
-      
-    att_tick:
-      let = *cpos;
-      
-      if( let == '`' ) {
-        if( attval_len ) {
-          curatt->value = attval;
-          curatt->vallen = attval_len;
-          attval_len = 0;
-        }
-        cpos++;
-        goto name_gap;
-      }
-      if( !let ) { last_state = ST_att_tick; goto done; }
-      
-      if( !attval_len ) attval = cpos;
-      attval_len++;
-      cpos++;
-      goto att_tick;
-      
-    ename_1:
-      let = *cpos;
-      if( let == '>' ) {
-        curnode->namelen = tagname_len;
-        curnode->z = cpos-xmlin;
-        curnode = curnode->parent; // jump up
-        if( !curnode ) goto done;
-        tagname_len++;
-        cpos++;
-        root->err = -1;
-        goto error;
-      }
-      if( !let ) { last_state = ST_ename_1; goto done; }
-      tagname       = cpos;
-      tagname_len   = 1;
-      cpos++;
-      // continue
-      
-    ename_x: // ending name
-      let = *cpos;
-      if( let == '>' ) {
-        if( curnode->namelen != tagname_len ) {
-          goto error;
-        }
-        if( res = dh_memcmp( curnode->name, tagname, tagname_len ) ) {
-          #ifdef DEBUG
-          printf("Closing node not equal: curnode->name=%.*s - opening tag=%.*s\n", tagname_len, curnode->name, tagname_len, tagname );
-          #endif
-          cpos -= tagname_len;
-          cpos += res - 1;
-          goto error;
-        }
-        curnode->z = cpos-xmlin;
-        curnode = curnode->parent; // jump up
-        if( !curnode ) goto done;
-        tagname_len++;
-        cpos++;
-        
-        goto val_1;
-      }
-      if( !let ) { last_state = ST_ename_x; goto done; }
       tagname_len++;
       cpos++;
-      goto ename_x;
+      goto key_x;
+    colon_wait:
+      #ifdef DEBUG
+      printf("colon_wait: %c\n", *cpos);
+      #endif
+      let = *cpos;
+      switch( let ) {
+        case 0: last_state = ST_val_1; goto done;
+        case ':': cpos++; goto value;
+      }
+      cpos++;
+      goto colon_wait;
+    value:
+      #ifdef DEBUG
+      printf("value: %c\n", *cpos);
+      #endif
+      let = *cpos;
+      switch( let ) {
+        case 0: last_state = ST_val_1; goto done;
+        case '{':
+          cpos++;
+          curnode->context = 0;
+          goto hash;
+        case '[':
+          cpos++;
+          curnode->context = 1;
+          goto array;
+        case '"': 
+          cpos++;
+          goto string_1;
+      }
+      if( ( let >= '0' && let <= '9' ) || let == '-' ) goto number_1;
+      cpos++;
+      goto value;
+    number_1:
+      #ifdef DEBUG
+      printf("number: %c\n", *cpos);
+      #endif
+      let = *cpos;
+      switch( let ) {
+        case 0: last_state = ST_val_1; goto done;
+        case ',':
+          curnode = curnode->parent;
+          if( curnode->context == 0 ) goto hash_comma_wait;
+          if( curnode->context == 1 ) goto array_comma_wait;
+      }
+      curnode->value = cpos;
+      curnode->vallen = 1;
+      cpos++;
+    number_x:
+      #ifdef DEBUG
+      printf("number: %c\n", *cpos);
+      #endif
+      let = *cpos;
+      switch( let ) {
+        case 0: last_state = ST_val_1; goto done;
+        case ',':
+          curnode = curnode->parent;
+          if( curnode->context == 0 ) goto hash_comma_wait;
+          if( curnode->context == 1 ) goto array_comma_wait;
+      }
+      curnode->vallen++;
+      cpos++;
+      goto number_x;
+    string_1:
+      #ifdef DEBUG
+      printf("string_1: %c\n", *cpos);
+      #endif
+      let = *cpos;
+      switch( let ) {
+        case 0: last_state = ST_val_1; goto done;
+        case '"':
+          curnode = curnode->parent;
+          if( curnode->context == 0 ) goto hash_comma_wait;
+          if( curnode->context == 1 ) goto array_comma_wait;
+      }
+      curnode->value = cpos;
+      curnode->vallen = 1;
+      cpos++;
+    string_x:
+      #ifdef DEBUG
+      printf("string_x: %c\n", *cpos);
+      #endif
+      let = *cpos;
+      switch( let ) {
+        case 0: last_state = ST_val_1; goto done;
+        case '"':
+          curnode = curnode->parent;
+          if( curnode->context == 0 ) goto hash_comma_wait;
+          if( curnode->context == 1 ) goto array_comma_wait;
+      }
+      curnode->vallen++;
+      cpos++;
+      goto string_x;
+    hash_comma_wait:
+      #ifdef DEBUG
+      printf("hash_comma_wait: %c\n", *cpos);
+      #endif
+      let = *cpos;
+      switch( let ) {
+        case 0: last_state = ST_val_1; goto done;
+        case ',': cpos++; goto hash;
+      }
+      goto hash_comma_wait;
+    array_comma_wait:
+      #ifdef DEBUG
+      printf("array_comma_wait: %c\n", *cpos);
+      #endif
+      let = *cpos;
+      switch( let ) {
+        case 0: last_state = ST_val_1; goto done;
+        case ',': cpos++; goto array;
+      }
+      goto array_comma_wait;
     error:
       self->err = - ( int ) ( cpos - &xmlin[0] );
       return self->err;

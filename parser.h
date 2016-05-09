@@ -31,6 +31,7 @@ struct nodec {
   int   pos;
   int   err;
   int   z;
+  int   context;
 };
 
 struct nodec *nodec_addchildr( struct nodec *self, char *newname, int newnamelen );//, char *newval, int newvallen, int newtype );

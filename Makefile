@@ -4,11 +4,11 @@ COMPILE = $(CC) $(CFLAGS) -c -g -m64
 
 all: test
 
-test: main.o parser.o xmlbare.o sh_bighash.o sh_hash.o sh_hash_func.o sh_page.o sh_page_manager.o
-	$(CC) -o test main.o parser.o xmlbare.o sh_bighash.o sh_hash.o sh_hash_func.o sh_page.o sh_page_manager.o
+test: main.o parser.o jsonbare.o sh_bighash.o sh_hash.o sh_hash_func.o sh_page.o sh_page_manager.o
+	$(CC) -o test main.o parser.o jsonbare.o sh_bighash.o sh_hash.o sh_hash_func.o sh_page.o sh_page_manager.o
 
-combined: parser.o xmlbare.o sh_bighash.o sh_hash.o sh_hash_func.o sh_page.o sh_page_manager.o
-	ld -r parser.o xmlbare.o sh_bighash.o sh_hash.o sh_hash_func.o sh_page.o sh_page_manager.o -o combined.o
+combined: parser.o jsonbare.o sh_bighash.o sh_hash.o sh_hash_func.o sh_page.o sh_page_manager.o
+	ld -r parser.o jsonbare.o sh_bighash.o sh_hash.o sh_hash_func.o sh_page.o sh_page_manager.o -o combined.o
 
 parser.o: parser.c
 	$(COMPILE) -o parser.o parser.c
@@ -16,8 +16,8 @@ parser.o: parser.c
 main.o: main.c
 	$(COMPILE) -o main.o main.c
 
-xmlbare.o: xmlbare.c
-	$(COMPILE) -o xmlbare.o xmlbare.c
+jsonbare.o: jsonbare.c
+	$(COMPILE) -o jsonbare.o jsonbare.c
 
 sh_bighash.o: sh_bighash.c
 	$(COMPILE) -o sh_bighash.o sh_bighash.c
