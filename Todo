@@ -1,4 +1,5 @@
 0.01
+    [] Properly make parser resumable so that chunks can be processed
     [] Add support for true, false, and null
     [] Add numerical parsing instead of just slurping numbers as a string
     [] Write a serializer

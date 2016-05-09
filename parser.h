@@ -68,6 +68,5 @@ struct parserc {
 };
 
 int parserc_parse( struct parserc *self, char *newbuf );
-int parserc_parse_unsafely( struct parserc *self, char *newbuf );
 
 #endif
